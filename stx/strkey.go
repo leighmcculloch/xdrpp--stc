@@ -170,10 +170,7 @@ func (pk SignerKey) String() string {
 	case SIGNER_KEY_TYPE_HASH_X:
 		return ToStrKey(STRKEY_HASH_X, pk.HashX()[:])
 	case SIGNER_KEY_TYPE_ED25519_SIGNED_PAYLOAD:
-		bin := []byte{}
-		bin = append(bin, pk.Ed25519SignedPayload().Ed25519[:]...)
-		bin = append(bin, pk.Ed25519SignedPayload().Payload...)
-		return ToStrKey(STRKEY_SIGNED_PAYLOAD|STRKEY_ALG_ED25519, bin)
+		return ToStrKey(STRKEY_SIGNED_PAYLOAD|STRKEY_ALG_ED25519, XdrToBytes(pk.Ed25519SignedPayload()))
 	default:
 		return fmt.Sprintf("SignerKey.Type#%d", int32(pk.Type))
 	}
@@ -398,8 +395,7 @@ func (pk *SignerKey) UnmarshalText(bs []byte) error {
 		copy(pk.HashX()[:], key)
 	case STRKEY_SIGNED_PAYLOAD|STRKEY_ALG_ED25519:
 		pk.Type = SIGNER_KEY_TYPE_ED25519_SIGNED_PAYLOAD
-		offset := copy(pk.Ed25519SignedPayload().Ed25519[:], key)
-		pk.Ed25519SignedPayload().Payload = key[offset:]
+		return XdrFromBytes(key, pk.Ed25519SignedPayload())
 	default:
 		return StrKeyError("Invalid signer key string")
 	}
