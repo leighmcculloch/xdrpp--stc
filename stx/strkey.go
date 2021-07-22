@@ -32,6 +32,7 @@ const (
 	STRKEY_PRIVKEY        StrKeyVersionByte = 18<<3 // 'S'
 	STRKEY_PRE_AUTH_TX    StrKeyVersionByte = 19<<3 // 'T',
 	STRKEY_HASH_X         StrKeyVersionByte = 23<<3 // 'X'
+	STRKEY_SIGNED_PAYLOAD StrKeyVersionByte = 15<<3 // 'P'
 	STRKEY_ERROR          StrKeyVersionByte = 255
 )
 
@@ -91,7 +92,7 @@ func FromStrKey(in []byte) ([]byte, StrKeyVersionByte) {
 	if err != nil || n != len(bin) || n < 3 {
 		return nil, STRKEY_ERROR
 	}
-	if targetlen, ok := payloadLen[StrKeyVersionByte(bin[0])]; !ok ||
+	if targetlen, ok := payloadLen[StrKeyVersionByte(bin[0])]; ok &&
 		targetlen != n - 3 {
 		return nil, STRKEY_ERROR
 	}
@@ -168,6 +169,8 @@ func (pk SignerKey) String() string {
 		return ToStrKey(STRKEY_PRE_AUTH_TX, pk.PreAuthTx()[:])
 	case SIGNER_KEY_TYPE_HASH_X:
 		return ToStrKey(STRKEY_HASH_X, pk.HashX()[:])
+	case SIGNER_KEY_TYPE_ED25519_SIGNED_PAYLOAD:
+		return ToStrKey(STRKEY_SIGNED_PAYLOAD|STRKEY_ALG_ED25519, XdrToBytes(pk.Ed25519SignedPayload()))
 	default:
 		return fmt.Sprintf("SignerKey.Type#%d", int32(pk.Type))
 	}
@@ -390,6 +393,9 @@ func (pk *SignerKey) UnmarshalText(bs []byte) error {
 	case STRKEY_HASH_X:
 		pk.Type = SIGNER_KEY_TYPE_HASH_X
 		copy(pk.HashX()[:], key)
+	case STRKEY_SIGNED_PAYLOAD|STRKEY_ALG_ED25519:
+		pk.Type = SIGNER_KEY_TYPE_ED25519_SIGNED_PAYLOAD
+		return XdrFromBytes(key, pk.Ed25519SignedPayload())
 	default:
 		return StrKeyError("Invalid signer key string")
 	}
@@ -425,6 +431,16 @@ func (pk SignerKey) Hint() SignatureHint {
 		return signerHint(pk.PreAuthTx()[:])
 	case SIGNER_KEY_TYPE_HASH_X:
 		return signerHint(pk.HashX()[:])
+	case SIGNER_KEY_TYPE_ED25519_SIGNED_PAYLOAD:
+		return signerHint(pk.Ed25519SignedPayload().Ed25519[:])
+		// ed25519Hint := signerHint(pk.Ed25519SignedPayload().Ed25519[:])
+		// payloadHint := signerHint(pk.Ed25519SignedPayload().Payload)
+		// return signerHint([]byte{
+		// 	ed25519Hint[0] ^ payloadHint[0],
+		// 	ed25519Hint[1] ^ payloadHint[1],
+		// 	ed25519Hint[2] ^ payloadHint[2],
+		// 	ed25519Hint[3] ^ payloadHint[3],
+		// })
 	default:
 		panic(StrKeyError("Invalid signer key type"))
 	}

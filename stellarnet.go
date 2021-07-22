@@ -85,6 +85,36 @@ func (net *StellarNet) SignTx(sk stcdetail.PrivateKeyInterface,
 	return nil
 }
 
+// Sign a payload and append the signature to the
+// TransactionEnvelope.
+func (net *StellarNet) SignPayload(sk stcdetail.PrivateKeyInterface,
+	payload []byte, e *TransactionEnvelope) error {
+	sig, err := sk.Sign(payload)
+	if err != nil {
+		return err
+	}
+	sigs := e.Signatures()
+	pkHint := sk.Public().Hint()
+	fmt.Println("pkHint:", pkHint)
+	if len(payload) < 4 {
+		return fmt.Errorf("payload too short must be at least four bytes")
+	}
+	payloadHint := payload[len(payload)-4:]
+	fmt.Println("payloadHint:", payloadHint)
+	hint := [4]byte{
+		pkHint[0] ^ payloadHint[0],
+		pkHint[1] ^ payloadHint[1],
+		pkHint[2] ^ payloadHint[2],
+		pkHint[3] ^ payloadHint[3],
+	}
+	fmt.Println("hint:", hint)
+	*sigs = append(*sigs, stx.DecoratedSignature{
+		Hint:      hint,
+		Signature: sig,
+	})
+	return nil
+}
+
 // An annotated SignerKey that can be used to authenticate
 // transactions.  Prints and Scans as a StrKey-format SignerKey, a
 // space, and then the comment.

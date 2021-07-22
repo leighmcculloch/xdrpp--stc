@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -306,6 +307,26 @@ func signTx(net *StellarNet, key string, e *TransactionEnvelope) error {
 	return nil
 }
 
+func signPayloadForTx(net *StellarNet, key string, payloadHex string, e *TransactionEnvelope) error {
+	if key != "" {
+		key = AdjustKeyName(key)
+	}
+	sk, err := getSecKey(key)
+	if err != nil {
+		return err
+	}
+	payload, err := hex.DecodeString(payloadHex)
+	if err != nil {
+		return err
+	}
+	net.AddSigner(sk.Public().String(), "")
+	if err = net.SignPayload(sk, payload, e); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return err
+	}
+	return nil
+}
+
 func editor(args ...string) {
 	ed, ok := os.LookupEnv("STCEDITOR")
 	if !ok {
@@ -469,6 +490,7 @@ func main() {
 	opt_txhash := flag.Bool("txhash", false, "Hash transaction to hex format")
 	opt_inplace := flag.Bool("i", false, "Edit the input file in place")
 	opt_sign := flag.Bool("sign", false, "Sign the transaction")
+	opt_payload := flag.String("payload", "", "Payload to sign and add to transaction")
 	opt_key := flag.String("key", "", "Use secret signing key in `FILE`")
 	opt_netname := flag.String("net", "",
 		"Use Network `NET` (e.g., test); default: $STCNET or \"default\"")
@@ -501,6 +523,10 @@ func main() {
 		"Created a MuxedAccount from an AccountID and uint64")
 	opt_demux := flag.Bool("demux", false,
 		"Split a MuxedAccount into an AccountID and a uint64")
+	opt_encode_signed_payload_signer := flag.Bool("encode-signed-payload-signer", false,
+		"Encode an ed25519 signed payload signer from a public key and hex string.")
+	opt_decode_signed_payload_signer := flag.Bool("decode-signed-payload-signer", false,
+		"Decode an ed25519 signed payload signed to a public key and hex string.")
 	opt_friendbot := flag.Bool("create", false,
 		"Create and fund account (on testnet only)")
 	opt_date := flag.Bool("date", false,
@@ -562,7 +588,9 @@ func main() {
 		*opt_export_key, *opt_acctinfo, *opt_txinfo, *opt_txacct,
 		*opt_friendbot, *opt_list_keys, *opt_fee_stats,
 		*opt_ledger_header, *opt_print_default_config, *opt_mux,
-		*opt_demux, *opt_opid, *opt_hint)
+		*opt_demux, *opt_opid, *opt_hint,
+		*opt_encode_signed_payload_signer,
+		*opt_decode_signed_payload_signer)
 
 	argsMin, argsMax := 1, 1
 	switch {
@@ -573,6 +601,10 @@ func main() {
 		argsMin = 0
 	case *opt_mux:
 		argsMin, argsMax = 2, 2
+	case *opt_encode_signed_payload_signer:
+		argsMin, argsMax = 2, 2
+	case *opt_decode_signed_payload_signer:
+		argsMin, argsMax = 1, 1
 	case *opt_opid:
 		argsMax, argsMax = 3, 3
 	}
@@ -707,6 +739,41 @@ func main() {
 			fmt.Print(" ", *id)
 		}
 		fmt.Println()
+		return
+	case *opt_encode_signed_payload_signer:
+		var pk AccountID
+		var bytesHex string
+		if _, err := fmt.Sscan(arg, &pk); err != nil {
+			fmt.Fprintf(os.Stderr, "invalid account ID %s\n", arg)
+			os.Exit(2)
+		}
+		arg1 := flag.Args()[1]
+		if _, err := fmt.Sscan(arg1, &bytesHex); err != nil {
+			fmt.Fprintf(os.Stderr, "invalid bytes as hex %q (%s)\n", arg1, err)
+			os.Exit(2)
+		}
+		bytes, err := hex.DecodeString(bytesHex)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid bytes as hex %q (%s)\n", bytesHex, err)
+			os.Exit(2)
+		}
+		signerKey := stx.SignerKey{
+			Type: stx.SIGNER_KEY_TYPE_ED25519_SIGNED_PAYLOAD,
+		}
+		signerKey.Ed25519SignedPayload().Ed25519 = *pk.Ed25519()
+		signerKey.Ed25519SignedPayload().Payload = bytes
+		fmt.Println(signerKey.String())
+		return
+	case *opt_decode_signed_payload_signer:
+		var signerKey stx.SignerKey
+		if _, err := fmt.Sscan(arg, &signerKey); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		pk := AccountID { Type: stx.PUBLIC_KEY_TYPE_ED25519 }
+		*pk.Ed25519() = signerKey.Ed25519SignedPayload().Ed25519
+		fmt.Println(pk)
+		fmt.Println(hex.EncodeToString(signerKey.Ed25519SignedPayload().Payload))
 		return
 	case *opt_date:
 		for _, f := range dateFormats {
@@ -893,8 +960,14 @@ func main() {
 			fixTx(net, e)
 		}
 		if *opt_sign || *opt_key != "" {
-			if err := signTx(net, *opt_key, e); err != nil {
-				os.Exit(1)
+			if *opt_payload != "" {
+				if err := signPayloadForTx(net, *opt_key, *opt_payload, e); err != nil {
+					os.Exit(1)
+				}
+			} else {
+				if err := signTx(net, *opt_key, e); err != nil {
+					os.Exit(1)
+				}
 			}
 		}
 		if *opt_learn {
