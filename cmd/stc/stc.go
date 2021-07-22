@@ -320,7 +320,7 @@ func signPayloadForTx(net *StellarNet, key string, payloadHex string, e *Transac
 		return err
 	}
 	net.AddSigner(sk.Public().String(), "")
-	if err = net.Sign(sk, payload, e); err != nil {
+	if err = net.SignPayload(sk, payload, e); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return err
 	}
